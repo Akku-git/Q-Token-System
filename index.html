@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Q-Token | Digital Queue System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <script src="https://unpkg.com/chart.js"></script>
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+        /* Custom scrollbar for better mobile feel */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1; 
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #888; 
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #555; 
+        }
+        
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+        }
+
+        .brick-theme-text {
+            color: #4a6fa5;
+        }
+        .brick-theme-bg {
+            background-color: #4a6fa5;
+        }
+        .brick-theme-border {
+            border-color: #4a6fa5;
+        }
+    </style>
+</head>
+<body class="text-gray-800 antialiased h-screen flex flex-col overflow-hidden">
+
+    <!-- Navigation Bar -->
+    <nav class="bg-white shadow-md z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center cursor-pointer" onclick="app.navigate('landing')">
+                    <i class="bi bi-layers-fill text-2xl brick-theme-text mr-2"></i>
+                    <h1 class="text-xl font-bold tracking-tight brick-theme-text">Q-Token</h1>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <button onclick="app.resetData()" class="text-xs text-gray-400 hover:text-red-500">Reset Data</button>
+                    <div id="nav-user-info" class="hidden text-sm font-medium text-gray-600"></div>
+                    <button id="nav-logout" onclick="app.logout()" class="hidden text-sm text-red-600 hover:text-red-800 font-medium">Logout</button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content Area -->
+    <main id="app-container" class="flex-1 overflow-y-auto p-4 sm:p-6 mb-16 sm:mb-0 relative">
+        <!-- Views will be injected here -->
+    </main>
+
+    <!-- Footer for Mobile mainly -->
+    <footer class="bg-white border-t border-gray-200 p-4 text-center text-xs text-gray-500 sm:hidden fixed bottom-0 w-full z-40">
+        &copy; 2023 Digital Queue System
+    </footer>
+
+    <!-- Javascript Logic -->
+    <script>
+        /**
+         * Data Management Layer
+         * Uses LocalStorage to simulate backend
+         */
+        const DataStore = {
+            getShops: () => {
+                return JSON.parse(localStorage.getItem('q_shops')) || [];
+            },
+            saveShops: (shops) => {
+                localStorage.setItem('q_shops', JSON.stringify(shops));
+            },
+            findShopIndex: (username) => {
+                const shops = DataStore.getShops();
+                return shops.findIndex(s => s.username === username);
+            },
+            addShop: (shopData) => {
+                const shops = DataStore.getShops();
+                if (shops.find(s => s.username === shopData.username)) {
+                    return { success: false, message: 'Username already exists' };
+                }
+                const newShop = {
+                    id: Date.now().toString(),
+                    ...shopData,
+                    queue: [],
+                    currentServingToken: null,
+                    lastTokenNumber: 0
+                };
+                shops.push(newShop);
+                DataStore.saveShops(shops);
+                return { success: true, shop: newShop };
+            },
+            getShopById: (id) => {
+                const shops = DataStore.getShops();
+                return shops.find(s => s.id === id);
+            },
+            updateShop: (updatedShop) => {
+                const shops = DataStore.getShops();
+                const index = shops.findIndex(s => s.id === updatedShop.id);
+                if (index !== -1) {
+                    shops[index] = updatedShop;
+                    DataStore.saveShops(shops);
+                    return true;
+                }
+                return false;
+            },
+            updateShopPassword: (username, newPassword) => {
+                const shops = DataStore.getShops();
+                const index = shops.findIndex(s => s.username === username);
+                if (index !== -1) {
+                    shops[index].password = newPassword;
+                    DataStore.saveShops(shops);
+                    return true;
+                }
+                return false;
+            }
+        };
+
+        /**
+         * Application Logic Controller
+         */
+        const app = {
+            state: {
+                view: 'landing', // landing, owner-auth, owner-dashboard, customer-list, customer-shop
+                userType: null, // 'owner' or 'customer'
+                currentUser: null, // if owner logged in
+                currentShopId: null, // if customer viewing a shop
+            },
+
+            init: () => {
+                // Initialize local storage with mock data if empty
+                if (!localStorage.getItem('q_shops')) {
+                    const mockShops = [
+                        { id: '1', username: 'shop1', password: '123', name: 'City Clinic', category: 'Health', maxPerSlot: 10, queue: [], currentServingToken: null, lastTokenNumber: 5, avgTime: 15 },
+                        { id: '2', username: 'shop2', password: '123', name: 'Fresh Cuts Salon', category: 'Salon', maxPerSlot: 2, queue: [], currentServingToken: null, lastTokenNumber: 12, avgTime: 30 },
+                        { id: '3', username: 'shop3', password: '123', name: 'Raju Groceries', category: 'Retail', maxPerSlot: 5, queue: [], currentServingToken: null, lastTokenNumber: 0, avgTime: 5 }
+                    ];
+                    // Mock queue for demo
+                    mockShops[0].queue = [
+                        { token: 6, name: 'John Doe', status: 'waiting', timestamp: Date.now() },
+                        { token: 7, name: 'Jane Smith', status: 'waiting', timestamp: Date.now() }
+                    ];
+                    mockShops[0].currentServingToken = 5;
+                    mockShops[0].lastTokenNumber = 7;
+                    
+                    DataStore.saveShops(mockShops);
+                }
+                app.render();
+            },
+
+            resetData: () => {
+                if(confirm("Are you sure you want to reset all data?")) {
+                    localStorage.removeItem('q_shops');
+                    location.reload();
+                }
+            },
+
+            navigate: (view, params = {}) => {
+                app.state.view = view;
+                if (params.shopId) app.state.currentShopId = params.shopId;
+                app.render();
+            },
+
+            login: (username, password) => {
+                const shops = DataStore.getShops();
+                const shop = shops.find(s => s.username === username && s.password === password);
+                if (shop) {
+                    app.state.currentUser = shop;
+                    app.state.userType = 'owner';
+                    app.navigate('owner-dashboard');
+                } else {
+                    alert('Invalid credentials');
+                }
+            },
+
+            register: (data) => {
+                const result = DataStore.addShop(data);
+                if (result.success) {
+                    app.state.currentUser = result.shop;
+                    app.state.userType = 'owner';
+                    app.navigate('owner-dashboard');
+                } else {
+                    alert(result.message);
+                }
+            },
+
+            resetPassword: (username, newPassword) => {
+                if (DataStore.updateShopPassword(username, newPassword)) {
+                    alert('Password reset successfully. You can now login with your new password.');
+                    document.getElementById('form-reset').classList.add('hidden');
+                    document.getElementById('form-login').classList.remove('hidden');
+                } else {
+                    alert('Username not found');
+                }
+            },
+
+            logout: () => {
+                app.state.currentUser = null;
+                app.state.userType = null;
+                app.navigate('landing');
+            },
+
+            generateToken: (customerName) => {
+                const shop = DataStore.getShopById(app.state.currentShopId);
+                if (!shop) return;
+                
+                const newTokenNum = shop.lastTokenNumber + 1;
+                const newEntry = {
+                    token: newTokenNum,
+                    name: customerName,
+                    status: 'waiting',
+                    timestamp: Date.now()
+                };
+                
+                shop.queue.push(newEntry);
+                shop.lastTokenNumber = newTokenNum;
+                DataStore.updateShop(shop);
+                app.render(); // Re-render to show update
+                
+                // Show success modal or alert
+                alert(`Token Generated! Your Token Number is #${newTokenNum}`);
+            },
+
+            // Owner Actions
+            nextCustomer: () => {
+                const shop = app.state.currentUser; // Get from state, but need to refresh from store
+                const realDataShop = DataStore.getShopById(shop.id);
+                
+                if (realDataShop.queue.length > 0) {
+                    // Update current serving
+                    const nextPerson = realDataShop.queue.shift(); // Remove first waiting
+                    realDataShop.currentServingToken = nextPerson.token;
+                    // In a real app we might keep history, here we just remove from wait queue to serving
+                    
+                    DataStore.updateShop(realDataShop);
+                    app.state.currentUser = realDataShop; // update local state
+                    app.render();
+                } else {
+                    alert("No customers in queue!");
+                }
+            },
+
+            completeCustomer: () => {
+                const shop = app.state.currentUser; 
+                const realDataShop = DataStore.getShopById(shop.id);
+                
+                if (realDataShop.currentServingToken) {
+                    realDataShop.currentServingToken = null;
+                    DataStore.updateShop(realDataShop);
+                    app.state.currentUser = realDataShop;
+                    app.render();
+                }
+            },
+            
+            // Rendering Logic
+            render: () => {
+                const container = document.getElementById('app-container');
+                const navUserInfo = document.getElementById('nav-user-info');
+                const navLogout = document.getElementById('nav-logout');
+
+                // Nav State
+                if (app.state.currentUser) {
+                    navUserInfo.innerText = `Hi, ${app.state.currentUser.name}`;
+                    navUserInfo.classList.remove('hidden');
+                    navLogout.classList.remove('hidden');
+                } else {
+                    navUserInfo.classList.add('hidden');
+                    navLogout.classList.add('hidden');
+                }
+
+                container.innerHTML = '';
+
+                switch (app.state.view) {
+                    case 'landing':
+                        container.innerHTML = views.landing();
+                        break;
+                    case 'owner-auth':
+                        container.innerHTML = views.ownerAuth();
+                        break;
+                    case 'owner-dashboard':
+                        // Ensure we have the latest data
+                        const latestUserData = DataStore.getShopById(app.state.currentUser.id);
+                        app.state.currentUser = latestUserData; 
+                        container.innerHTML = views.ownerDashboard(latestUserData);
+                        break;
+                    case 'customer-list':
+                        const shops = DataStore.getShops();
+                        container.innerHTML = views.customerList(shops);
+                        break;
+                    case 'customer-shop':
+                        const shopId = app.state.currentShopId;
+                        const shopData = DataStore.getShopById(shopId);
+                        container.innerHTML = views.customerShop(shopData);
+                        break;
+                }
+            }
+        };
+
+        /**
+         * View Components (Returns HTML Strings)
+         */
+        const views = {
+            landing: () => `
+                <div class="flex flex-col items-center justify-center h-full space-y-8 animate-fade-in">
+                    <div class="text-center max-w-2xl">
+                        <h2 class="text-4xl font-extrabold text-gray-900 mb-4">Smart Queue Management <span class="brick-theme-text">Simplified</span></h2>
+                        <p class="text-gray-500 text-lg">Manage lines efficiently or join queues remotely. Perfect for clinics, salons, shops, and more.</p>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 w-full max-w-3xl px-4">
+                        <!-- Shop Owner Card -->
+                        <div onclick="app.navigate('owner-auth')" class="cursor-pointer group relative bg-white rounded-2xl shadow-xl overflow-hidden hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 border border-gray-100">
+                             <div class="absolute top-0 left-0 w-2 h-full brick-theme-bg"></div>
+                             <div class="p-8">
+                                <i class="bi bi-shop text-5xl brick-theme-text mb-4 inline-block"></i>
+                                <h3 class="text-2xl font-bold mb-2">For Shop Owners</h3>
+                                <p class="text-gray-500 mb-4">Register your shop, manage queues, and keep customers happy.</p>
+                                <span class="inline-flex items-center text-blue-600 font-semibold group-hover:underline">Login / Register <i class="bi bi-arrow-right ml-2"></i></span>
+                             </div>
+                        </div>
+
+                        <!-- Customer Card -->
+                        <div onclick="app.navigate('customer-list')" class="cursor-pointer group relative bg-white rounded-2xl shadow-xl overflow-hidden hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 border border-gray-100">
+                             <div class="absolute top-0 left-0 w-2 h-full bg-green-500"></div>
+                             <div class="p-8">
+                                <i class="bi bi-people text-5xl text-green-500 mb-4 inline-block"></i>
+                                <h3 class="text-2xl font-bold mb-2">For Customers</h3>
+                                <p class="text-gray-500 mb-4">Find nearby services, join the line digitaly, and save time.</p>
+                                <span class="inline-flex items-center text-green-600 font-semibold group-hover:underline">Find a Shop <i class="bi bi-arrow-right ml-2"></i></span>
+                             </div>
+                        </div>
+                    </div>
+                </div>
+            `,
+
+            ownerAuth: () => {
+                // Determine if we show login or register initially? let's do tabs.
+                // Using simple JS toggle inline for simplicity in string
+                return `
+                <div class="max-w-md mx-auto bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden mt-10">
+                    <div class="flex border-b border-gray-100">
+                        <button onclick="document.getElementById('form-register').classList.add('hidden'); document.getElementById('form-reset').classList.add('hidden'); document.getElementById('form-login').classList.remove('hidden'); this.classList.add('brick-theme-text', 'border-b-2', 'brick-theme-border'); this.nextElementSibling.classList.remove('brick-theme-text', 'border-b-2', 'brick-theme-border'); this.nextElementSibling.nextElementSibling.classList.remove('brick-theme-text', 'border-b-2', 'brick-theme-border');"
+                        class="w-1/3 py-4 text-center font-semibold brick-theme-text border-b-2 brick-theme-border hover:bg-gray-50 transition">Login</button>
+
+                        <button onclick="document.getElementById('form-login').classList.add('hidden'); document.getElementById('form-reset').classList.add('hidden'); document.getElementById('form-register').classList.remove('hidden'); this.classList.add('brick-theme-text', 'border-b-2', 'brick-theme-border'); this.previousElementSibling.classList.remove('brick-theme-text', 'border-b-2', 'brick-theme-border'); this.nextElementSibling.classList.remove('brick-theme-text', 'border-b-2', 'brick-theme-border');"
+                        class="w-1/3 py-4 text-center font-semibold text-gray-400 hover:bg-gray-50 transition">Register Shop</button>
+
+                        <button onclick="document.getElementById('form-login').classList.add('hidden'); document.getElementById('form-register').classList.add('hidden'); document.getElementById('form-reset').classList.remove('hidden'); this.classList.add('brick-theme-text', 'border-b-2', 'brick-theme-border'); this.previousElementSibling.previousElementSibling.classList.remove('brick-theme-text', 'border-b-2', 'brick-theme-border'); this.previousElementSibling.classList.remove('brick-theme-text', 'border-b-2', 'brick-theme-border');"
+                        class="w-1/3 py-4 text-center font-semibold text-gray-400 hover:bg-gray-50 transition">Reset Password</button>
+                    </div>
+
+                    <div class="p-8">
+                        <!-- Login Form -->
+                        <form id="form-login" onsubmit="event.preventDefault(); app.login(this.username.value, this.password.value);">
+                            <h3 class="text-xl font-bold mb-6 text-gray-800">Welcome Back!</h3>
+                            <div class="mb-4">
+                                <label class="block text-gray-700 text-sm font-bold mb-2">Username</label>
+                                <input name="username" type="text" required class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            </div>
+                            <div class="mb-6">
+                                <label class="block text-gray-700 text-sm font-bold mb-2">Password</label>
+                                <input name="password" type="password" required class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            </div>
+                            <button type="submit" class="w-full brick-theme-bg text-white font-bold py-3 rounded-lg hover:opacity-90 transition shadow-lg">Login</button>
+                        </form>
+
+                        <!-- Register Form -->
+                        <form id="form-register" class="hidden" onsubmit="event.preventDefault(); app.register({
+                            name: this.shopName.value,
+                            category: this.category.value,
+                            maxPerSlot: Number(this.maxSlot.value),
+                            avgTime: Number(this.avgTime.value),
+                            username: this.regUser.value,
+                            password: this.regPass.value
+                        });">
+                            <h3 class="text-xl font-bold mb-4 text-gray-800">Setup Your Shop</h3>
+                            <div class="grid grid-cols-2 gap-4 mb-4">
+                                <div>
+                                    <label class="block text-gray-700 text-xs font-bold mb-1">Shop Name</label>
+                                    <input name="shopName" type="text" required class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                                </div>
+                                <div>
+                                    <label class="block text-gray-700 text-xs font-bold mb-1">Category</label>
+                                    <select name="category" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                                        <option>Clinic</option>
+                                        <option>Salon</option>
+                                        <option>Grocery/Retail</option>
+                                        <option>Restaurant</option>
+                                        <option>Other</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-2 gap-4 mb-4">
+                                <div>
+                                    <label class="block text-gray-700 text-xs font-bold mb-1">Avg Time (min)</label>
+                                    <input name="avgTime" type="number" value="15" required class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                                </div>
+                                <div>
+                                    <label class="block text-gray-700 text-xs font-bold mb-1">Max Queue Size</label>
+                                    <input name="maxSlot" type="number" value="50" required class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                                </div>
+                            </div>
+                            <div class="mb-4">
+                                <label class="block text-gray-700 text-xs font-bold mb-1">Username</label>
+                                <input name="regUser" type="text" required class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                            </div>
+                            <div class="mb-6">
+                                <label class="block text-gray-700 text-xs font-bold mb-1">Password</label>
+                                <input name="regPass" type="password" required class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                            </div>
+                             <button type="submit" class="w-full bg-green-600 text-white font-bold py-3 rounded-lg hover:bg-green-700 transition shadow-lg">Register & Login</button>
+                         </form>
+
+                         <!-- Reset Password Form -->
+                         <form id="form-reset" class="hidden" onsubmit="event.preventDefault(); app.resetPassword(this.resetUser.value, this.resetPass.value);">
+                             <h3 class="text-xl font-bold mb-6 text-gray-800">Reset Password</h3>
+                             <div class="mb-4">
+                                 <label class="block text-gray-700 text-sm font-bold mb-2">Username</label>
+                                 <input name="resetUser" type="text" required class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                             </div>
+                             <div class="mb-6">
+                                 <label class="block text-gray-700 text-sm font-bold mb-2">New Password</label>
+                                 <input name="resetPass" type="password" required class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                             </div>
+                             <button type="submit" class="w-full bg-orange-600 text-white font-bold py-3 rounded-lg hover:bg-orange-700 transition shadow-lg">Reset Password</button>
+                         </form>
+                     </div>
+                 </div>
+                `;
+            },
+
+            ownerDashboard: (shop) => {
+                const queueLength = shop.queue.length;
+                const nextPerson = shop.queue.length > 0 ? shop.queue[0].name : '-';
+                const nextToken = shop.queue.length > 0 ? shop.queue[0].token : '-';
+                
+                return `
+                <div class="max-w-6xl mx-auto space-y-6">
+                    <!-- Setup / Status Header -->
+                    <div class="bg-white rounded-xl shadow p-6 flex flex-col md:flex-row justify-between items-center">
+                        <div>
+                            <span class="bg-blue-100 text-blue-800 text-xs font-semibold mr-2 px-2.5 py-0.5 rounded">${shop.category}</span>
+                            <h2 class="text-3xl font-bold text-gray-900 mt-2">${shop.name}</h2>
+                            <p class="text-gray-500 text-sm">Dashboard Overview</p>
+                        </div>
+                        <div class="mt-4 md:mt-0 flex gap-4 text-center">
+                            <div class="p-4 bg-gray-50 rounded-lg">
+                                <div class="text-2xl font-bold text-gray-800">${queueLength}</div>
+                                <div class="text-xs text-gray-500 uppercase tracking-wide">Waiting</div>
+                            </div>
+                            <div class="p-4 bg-indigo-50 rounded-lg">
+                                <div class="text-2xl font-bold brick-theme-text">${shop.lastTokenNumber}</div>
+                                <div class="text-xs text-gray-500 uppercase tracking-wide">Total Tokens</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <!-- Controls Section -->
+                        <div class="lg:col-span-1 space-y-6">
+                            <!-- Current Serving Card -->
+                            <div class="bg-white rounded-xl shadow-lg border-t-4 brick-theme-border p-6 text-center">
+                                <h3 class="text-lg font-medium text-gray-400 mb-2">NOW SERVING</h3>
+                                <div class="text-6xl font-black text-gray-900 mb-2">${shop.currentServingToken !== null ? '#' + shop.currentServingToken : '--'}</div>
+                                <p class="text-green-500 font-medium mb-6"><i class="bi bi-clock-history"></i> Serving Now</p>
+                                
+                                <div class="space-y-3">
+                                    <button onclick="app.completeCustomer()" class="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 rounded-lg transition" ${shop.currentServingToken === null ? 'disabled' : ''}>
+                                        <i class="bi bi-check-circle-fill mr-2"></i> Mark Completed
+                                    </button>
+                                    <button onclick="app.nextCustomer()" class="w-full brick-theme-bg hover:opacity-90 text-white font-bold py-3 rounded-lg transition shadow-md">
+                                        <i class="bi bi-megaphone-fill mr-2"></i> Call Next Token
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <!-- Next Up Info -->
+                            <div class="bg-white rounded-xl shadow p-6">
+                                <h4 class="text-sm font-bold text-gray-400 uppercase mb-4">Up Next in Queue</h4>
+                                <div class="flex items-center justify-between">
+                                    <div class="flex items-center">
+                                        <div class="bg-blue-100 p-2 rounded-full mr-3">
+                                            <i class="bi bi-person-fill text-blue-600"></i>
+                                        </div>
+                                        <div>
+                                            <div class="font-bold text-lg">Token #${nextToken}</div>
+                                            <div class="text-sm text-gray-500">${nextPerson}</div>
+                                        </div>
+                                    </div>
+                                    ${shop.queue.length === 0 ? '<span class="text-xs bg-gray-100 px-2 py-1 rounded">Empty</span>' : '<span class="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded">Waiting</span>'}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- List Section -->
+                        <div class="lg:col-span-2 bg-white rounded-xl shadow overflow-hidden">
+                            <div class="px-6 py-4 border-b border-gray-100 flex justify-between items-center">
+                                <h3 class="font-bold text-lg text-gray-800">Queue List</h3>
+                                <button onclick="app.render()" class="text-blue-500 hover:text-blue-700 text-sm"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
+                            </div>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-sm text-left">
+                                    <thead class="bg-gray-50 text-gray-500 font-medium border-b">
+                                        <tr>
+                                            <th class="px-6 py-3">Token</th>
+                                            <th class="px-6 py-3">Customer Name</th>
+                                            <th class="px-6 py-3">Joined At</th>
+                                            <th class="px-6 py-3">Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-gray-100">
+                                        ${shop.queue.length > 0 ? shop.queue.map(q => `
+                                            <tr class="hover:bg-gray-50">
+                                                <td class="px-6 py-4 font-bold text-gray-900">#${q.token}</td>
+                                                <td class="px-6 py-4">${q.name}</td>
+                                                <td class="px-6 py-4 text-gray-500">${new Date(q.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</td>
+                                                <td class="px-6 py-4"><span class="bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full text-xs">Waiting</span></td>
+                                            </tr>
+                                        `).join('') : `
+                                            <tr>
+                                                <td colspan="4" class="px-6 py-8 text-center text-gray-400">
+                                                    No one in the waiting line.
+                                                </td>
+                                            </tr>
+                                        `}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                `;
+            },
+
+            customerList: (shops) => {
+                return `
+                <div class="max-w-4xl mx-auto">
+                    <div class="mb-8 text-center pt-8">
+                        <h2 class="text-3xl font-bold text-gray-900">Find a Service Nearby</h2>
+                        <p class="text-gray-500">Select a shop or clinic to view the queue and get your token.</p>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        ${shops.map(shop => `
+                            <div onclick="app.navigate('customer-shop', {shopId: '${shop.id}'})" class="bg-white rounded-xl shadow-md cursor-pointer hover:shadow-xl hover:-translate-y-1 transition-all duration-300 border border-gray-100 overflow-hidden">
+                                <div class="h-2 brick-theme-bg w-full"></div>
+                                <div class="p-6">
+                                    <div class="flex justify-between items-start mb-4">
+                                        <div>
+                                            <h3 class="font-bold text-xl text-gray-800 truncate">${shop.name}</h3>
+                                            <span class="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded mt-1 inline-block">${shop.category}</span>
+                                        </div>
+                                        <div class="bg-gray-50 p-2 rounded-lg text-center min-w-[60px]">
+                                            <span class="block text-xs text-gray-400 tracking-wider">WAIT</span>
+                                            <span class="block font-bold text-red-500">${shop.queue.length * shop.avgTime}m</span>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="flex justify-between items-center text-sm text-gray-500 mt-4 border-t pt-4">
+                                        <span>Queue Length: </span>
+                                        <span class="font-bold text-gray-800">${shop.queue.length} People</span>
+                                    </div>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+                `;
+            },
+
+            customerShop: (shop) => {
+                const waitTime = shop.queue.length * shop.avgTime;
+                return `
+                <div class="max-w-md mx-auto bg-white min-h-[500px] shadow-xl rounded-2xl overflow-hidden flex flex-col relative mt-6">
+                    <!-- Header -->
+                    <div class="brick-theme-bg p-6 text-white text-center pb-12 rounded-b-[3rem] relative z-10">
+                        <button onclick="app.navigate('customer-list')" class="absolute top-6 left-6 text-white/80 hover:text-white"><i class="bi bi-arrow-left text-xl"></i></button>
+                        <h2 class="text-2xl font-bold mt-2">${shop.name}</h2>
+                        <p class="text-blue-100 opacity-90 text-sm">${shop.category}</p>
+                    </div>
+
+                    <!-- Status Card -->
+                    <div class="mx-6 -mt-8 relative z-20 bg-white rounded-xl shadow-lg p-6 text-center border border-gray-100">
+                        <p class="text-xs text-gray-400 font-bold tracking-widest uppercase mb-1">Currently Serving</p>
+                        <div class="text-5xl font-black text-gray-800 mb-2">${shop.currentServingToken ? '#' + shop.currentServingToken : '--'}</div>
+                        <div class="flex justify-center space-x-8 mt-4">
+                            <div>
+                                <span class="block text-xl font-bold text-gray-700">${shop.queue.length}</span>
+                                <span class="text-xs text-gray-400">Waiting</span>
+                            </div>
+                            <div class="w-px bg-gray-200"></div>
+                            <div>
+                                <span class="block text-xl font-bold text-red-500">~${waitTime}m</span>
+                                <span class="text-xs text-gray-400">Est. Time</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Action Area -->
+                    <div class="p-8 flex-1 flex flex-col justify-center items-center space-y-6">
+                        <div class="text-center w-full">
+                            <h3 class="text-lg font-bold text-gray-800 mb-2">Join the Line</h3>
+                            <p class="text-gray-500 text-sm mb-6">Get a digital token and track your status.</p>
+                            
+                            <form onsubmit="event.preventDefault(); app.generateToken(this.cname.value);" class="w-full">
+                                <input name="cname" type="text" placeholder="Enter Your Name" required class="w-full bg-gray-50 px-4 py-3 border border-gray-200 rounded-lg mb-4 focus:ring-2 focus:ring-blue-400 focus:outline-none transition">
+                                <button type="submit" class="w-full brick-theme-bg text-white font-bold py-4 rounded-xl shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition-all">
+                                    <i class="bi bi-ticket-perforated-fill mr-2"></i> Get Token
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+                `;
+            }
+        };
+
+        // Start App
+        document.addEventListener('DOMContentLoaded', app.init);
+
+    </script>
+</body>
+</html>
